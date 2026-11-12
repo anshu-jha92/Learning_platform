@@ -13,6 +13,7 @@ import { topPatterns } from "./profile";
 import { isMockMode, mockDebrief } from "./mock";
 import { getTextClient } from "./openai-client";
 import { requestStructured } from "./structured";
+import { chatModel } from "./models";
 
 /**
  * Post-call debrief.
@@ -25,7 +26,6 @@ import { requestStructured } from "./structured";
  * the review deck and the dashboard all consume it with no special cases.
  */
 
-const MODEL = process.env.OPENAI_MODEL ?? "gpt-4o";
 
 /** The coaching object's schema, reused verbatim from the typed/spoken turn contract. */
 const COACHING_JSON_SCHEMA = COACH_TURN_JSON_SCHEMA.properties.coaching;
@@ -168,7 +168,7 @@ Then write the session summary. Be specific and honest — name what actually ha
 
   return (await requestStructured({
     client: getTextClient(),
-    model: MODEL,
+    model: chatModel(),
     temperature: 0.4,
     messages: [
       { role: "system", content: system },

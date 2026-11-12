@@ -3,6 +3,7 @@ import { CoachError } from "./coach";
 import { getTextClient } from "./openai-client";
 import { requestStructured } from "./structured";
 import { hashId } from "./text";
+import { chatModel } from "./models";
 
 /**
  * My Library — the words and phrases you decided were worth keeping.
@@ -61,7 +62,6 @@ const ENRICH_JSON_SCHEMA = {
   },
 } as const;
 
-const MODEL = process.env.OPENAI_MODEL ?? "gpt-4o";
 
 /**
  * Ask the model for a meaning and a usage example.
@@ -86,7 +86,7 @@ Keep both tight. A long entry does not get read.`;
 
   return requestStructured({
     client: getTextClient(),
-    model: MODEL,
+    model: chatModel(),
     temperature: 0.3,
     messages: [
       { role: "system", content: system },

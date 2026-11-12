@@ -3,6 +3,7 @@ import { CoachError } from "./coach";
 import { getScenario } from "./scenarios";
 import { getTextClient } from "./openai-client";
 import { requestStructured } from "./structured";
+import { chatModel } from "./models";
 
 /**
  * "I know what I want to say, I just cannot say it in English."
@@ -78,7 +79,6 @@ const TRANSLATION_JSON_SCHEMA = {
   },
 } as const;
 
-const MODEL = process.env.OPENAI_MODEL ?? "gpt-4o";
 
 export async function translateToEnglish(
   scenarioId: string,
@@ -115,7 +115,7 @@ Rules:
 
   return requestStructured({
     client: getTextClient(),
-    model: MODEL,
+    model: chatModel(),
     temperature: 0.5,
     messages: [
       { role: "system", content: system },

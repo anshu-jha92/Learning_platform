@@ -4,6 +4,7 @@ import { getTextClient } from "./openai-client";
 import { requestStructured } from "./structured";
 import type { TurnRecord } from "./store";
 import type { LibraryEntry } from "./library";
+import { chatModel } from "./models";
 
 /**
  * The weekly test.
@@ -90,7 +91,6 @@ const QUESTIONS_JSON_SCHEMA = {
   },
 } as const;
 
-const MODEL = process.env.OPENAI_MODEL ?? "gpt-4o";
 
 /** Turns and words from the last N days — the only material the test is allowed. */
 export function recentMaterial(
@@ -168,7 +168,7 @@ Rules:
 
   const result = await requestStructured({
     client: getTextClient(),
-    model: MODEL,
+    model: chatModel(),
     temperature: 0.4,
     messages: [
       { role: "system", content: system },
@@ -298,7 +298,7 @@ Mark fairly and usefully:
 
   const graded = await requestStructured({
     client: getTextClient(),
-    model: MODEL,
+    model: chatModel(),
     temperature: 0.2,
     messages: [
       { role: "system", content: system },

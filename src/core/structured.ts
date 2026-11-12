@@ -1,6 +1,7 @@
 import type OpenAI from "openai";
 import type { ZodType } from "zod";
 import { CoachError } from "./coach";
+import { explainModelError } from "./models";
 
 /**
  * Structured output that survives a provider which does not support it.
@@ -120,6 +121,10 @@ export async function requestStructured<T>(req: StructuredRequest<T>): Promise<T
   } catch (error) {
     // A shape mismatch is the model's fault, not the provider's — do not retry it.
     if (error instanceof CoachError) throw error;
+    // A model the provider does not have is not an unsupported mode: stepping down a
+    // rung cannot help, and the 404 names the variable to fix.
+    const missing = explainModelError(error, "OPENAI_MODEL");
+    if (missing) throw missing;
     if (!looksUnsupported(error)) throw error;
   }
 
@@ -135,6 +140,10 @@ export async function requestStructured<T>(req: StructuredRequest<T>): Promise<T
     return parseAndValidate(contentOf(completion, "json mode"), validator, "json mode");
   } catch (error) {
     if (error instanceof CoachError) throw error;
+    // A model the provider does not have is not an unsupported mode: stepping down a
+    // rung cannot help, and the 404 names the variable to fix.
+    const missing = explainModelError(error, "OPENAI_MODEL");
+    if (missing) throw missing;
     if (!looksUnsupported(error)) throw error;
   }
 

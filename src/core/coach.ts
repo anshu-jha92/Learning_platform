@@ -5,6 +5,7 @@ import type { LearnerProfile } from "./profile";
 import { isMockMode, mockCoachTurn } from "./mock";
 import { getTextClient } from "./openai-client";
 import { requestStructured } from "./structured";
+import { chatModel } from "./models";
 
 export interface ChatTurn {
   role: "user" | "assistant";
@@ -22,7 +23,6 @@ export interface CoachRequest {
 
 export class CoachError extends Error {}
 
-const MODEL = process.env.OPENAI_MODEL ?? "gpt-4o";
 
 /**
  * One model call returns both the in-character reply and the coaching, which halves
@@ -39,7 +39,7 @@ export async function runCoachTurn(req: CoachRequest): Promise<CoachTurn> {
   // provider cannot do strict mode, so this works on Gemini and Groq as well as OpenAI.
   return requestStructured({
     client: getTextClient(),
-    model: MODEL,
+    model: chatModel(),
     temperature: 0.7,
     messages: [
       { role: "system", content: system },

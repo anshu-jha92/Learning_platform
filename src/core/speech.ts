@@ -1,9 +1,7 @@
 import { CoachError } from "./coach";
 import { isMockMode, mockTranscribe } from "./mock";
 import { getSpeechClient } from "./openai-client";
-
-const STT_MODEL = process.env.OPENAI_STT_MODEL ?? "whisper-1";
-const TTS_MODEL = process.env.OPENAI_TTS_MODEL ?? "tts-1";
+import { sttModel, ttsModel } from "./models";
 
 /**
  * Whisper is trained to produce *fluent* text, so by default it quietly repairs a learner's
@@ -34,11 +32,12 @@ export async function transcribe(
   if (isMockMode()) return mockTranscribe();
 
   // verbose_json carries the true audio duration, but only whisper-1 supports it.
-  const verbose = STT_MODEL === "whisper-1";
+  const model = sttModel();
+  const verbose = model === "whisper-1";
 
   const result = await getSpeechClient().audio.transcriptions.create({
     file,
-    model: STT_MODEL,
+    model,
     language,
     temperature: 0,
     // The verbatim bias is an English sample — it exists to stop Whisper tidying up a
@@ -71,8 +70,16 @@ export async function synthesize(
 ): Promise<Buffer> {
   const input = text.slice(0, TTS_MAX_CHARS);
 
+  // Groq and Gemini have no speech endpoint worth calling, so there is no name to send.
+  // Saying so here costs nothing; sending a guess costs a round trip that ends in a 404
+  // before the browser's own voice takes over anyway.
+  const model = ttsModel();
+  if (!model) {
+    throw new CoachError("This provider has no text-to-speech model configured.");
+  }
+
   const response = await getSpeechClient().audio.speech.create({
-    model: TTS_MODEL,
+    model,
     voice,
     input,
     // Same control as the browser voice, so the speed setting means one thing
