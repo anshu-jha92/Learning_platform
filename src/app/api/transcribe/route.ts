@@ -1,0 +1,50 @@
+import { NextResponse } from "next/server";
+import { CoachError } from "@/core/coach";
+import { transcribe, type SpeechLanguage } from "@/core/speech";
+
+const MAX_AUDIO_BYTES = 10 * 1024 * 1024;
+
+/**
+ * Speech to text, nothing else.
+ *
+ * The other audio routes all do something with the transcript — coach it, translate it,
+ * score it against a target. The test just needs the words.
+ */
+export async function POST(request: Request) {
+  let form: FormData;
+  try {
+    form = await request.formData();
+  } catch {
+    return NextResponse.json(
+      { error: "Expected multipart form data." },
+      { status: 400 }
+    );
+  }
+
+  const audio = form.get("audio");
+  if (!(audio instanceof File) || audio.size === 0) {
+    return NextResponse.json({ error: "No audio was received." }, { status: 400 });
+  }
+  if (audio.size > MAX_AUDIO_BYTES) {
+    return NextResponse.json({ error: "That recording is too long." }, { status: 413 });
+  }
+
+  const language = (String(form.get("language") ?? "en") as SpeechLanguage) === "hi"
+    ? "hi"
+    : "en";
+
+  try {
+    const { text } = await transcribe(audio, language);
+    return NextResponse.json({ text });
+  } catch (error) {
+    if (error instanceof CoachError) {
+      return NextResponse.json({ error: error.message }, { status: 502 });
+    }
+    const detail = error instanceof Error ? error.message : "Unknown error";
+    console.error("[/api/transcribe]", error);
+    return NextResponse.json(
+      { error: `Could not transcribe that: ${detail}` },
+      { status: 500 }
+    );
+  }
+}

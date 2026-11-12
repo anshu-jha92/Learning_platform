@@ -1,26 +1,273 @@
 @import "tailwindcss";
 
+/*
+ * Design tokens.
+ *
+ * Nothing in the app names a raw colour — components say what a surface IS (page,
+ * surface, raised, line, ink, brand) rather than which shade it happens to be. That is
+ * what made the dark-to-light flip a token change instead of hundreds of class edits,
+ * and it is why this restyle touched the tokens and a handful of component classes
+ * rather than every file.
+ *
+ * Brand indigo #4f46e5 is also the chart series colour, validated against the white
+ * card surface the charts sit on, so the UI and the data are drawn from one palette.
+ */
+@theme {
+  --color-page: #f7f7fb;
+  --color-surface: #ffffff;
+  --color-raised: #f2f2f8;
+  --color-line: #e6e6f0;
+  --color-line-strong: #c9c9da;
+  --color-ink: #14141f;
+  --color-ink-2: #4a4a5e;
+  --color-muted: #8787a0;
+
+  --color-brand: #4f46e5;
+  --color-brand-2: #7c3aed;
+  --color-brand-soft: #eef0ff;
+  --color-brand-ink: #3730a3;
+}
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --brand-gradient: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+  /* Three depths, not one. A flat app reads cheap; a uniformly shadowed one reads noisy. */
+  --shadow-soft: 0 1px 2px rgba(20, 20, 31, 0.04), 0 1px 3px rgba(20, 20, 31, 0.06);
+  --shadow-lift: 0 2px 4px rgba(20, 20, 31, 0.04), 0 8px 20px rgba(20, 20, 31, 0.08);
+  --shadow-brand: 0 2px 6px rgba(79, 70, 229, 0.22), 0 8px 24px rgba(79, 70, 229, 0.16);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  color: var(--color-ink);
+  font-family:
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    Helvetica,
+    Arial,
+    sans-serif;
+  /* A faint brand wash in the corners, so the page is not a flat grey sheet.
+     fixed so it does not slide away as the transcript scrolls. */
+  background:
+    radial-gradient(900px 500px at 12% -8%, rgba(79, 70, 229, 0.07), transparent 60%),
+    radial-gradient(800px 500px at 92% 4%, rgba(124, 58, 237, 0.06), transparent 55%),
+    var(--color-page);
+  background-attachment: fixed;
+  overscroll-behavior-y: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---- Components ---------------------------------------------------------- */
+
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: 14px;
+  box-shadow: var(--shadow-soft);
+}
+
+.card-lift {
+  box-shadow: var(--shadow-lift);
+}
+
+/*
+ * Sticky bars are OPAQUE on purpose.
+ *
+ * These were translucent with a backdrop blur, which looked good in theory and failed in
+ * practice: the computed backdrop-filter came back "none" in the browser even though it
+ * is supported, so the frosting never happened and the transcript scrolled visibly
+ * through the header. A translucent bar that does not blur is just a window.
+ *
+ * Solid, with a shadow that appears once you scroll, is also the sturdier pattern for a
+ * bar this tall — blur at 170px of height still lets shapes and colour through and reads
+ * muddy. The shadow is what says "this floats above", not transparency.
+ */
+.glass {
+  background: var(--color-page);
+  border-bottom: 1px solid var(--color-line);
+  transition: box-shadow 0.2s ease;
+}
+.glass.is-scrolled {
+  box-shadow: 0 1px 2px rgba(20, 20, 31, 0.04), 0 6px 16px rgba(20, 20, 31, 0.07);
+}
+
+.glass-top {
+  background: var(--color-page);
+  border-top: 1px solid var(--color-line);
+  box-shadow: 0 -2px 6px rgba(20, 20, 31, 0.04), 0 -8px 20px rgba(20, 20, 31, 0.05);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .glass {
+    transition: none;
+  }
+}
+
+.btn-primary {
+  background: var(--brand-gradient);
+  color: #fff;
+  border-radius: 11px;
+  font-weight: 500;
+  box-shadow: var(--shadow-brand);
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease,
+    opacity 0.15s ease;
+}
+.btn-primary:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(79, 70, 229, 0.28), 0 12px 28px rgba(79, 70, 229, 0.2);
+}
+.btn-primary:active:not(:disabled) {
+  transform: translateY(0);
+}
+/*
+ * Disabled is a different surface, not a faded one. Dropping a gradient button to
+ * opacity 0.4 leaves white text on a pale wash — the label stops being readable, which
+ * is the opposite of what a disabled control should do. Flat and muted stays legible.
+ */
+.btn-primary:disabled {
+  background: var(--color-raised);
+  color: var(--color-muted);
+  box-shadow: none;
+  opacity: 1;
+  cursor: not-allowed;
+}
+
+.btn-ghost {
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  color: var(--color-ink-2);
+  border-radius: 10px;
+  box-shadow: var(--shadow-soft);
+  transition:
+    border-color 0.15s ease,
+    color 0.15s ease,
+    transform 0.15s ease;
+}
+.btn-ghost:hover:not(:disabled) {
+  border-color: var(--color-brand);
+  color: var(--color-brand);
+  transform: translateY(-1px);
+}
+
+/* Scenario / range selectors. */
+.pill {
+  border-radius: 999px;
+  border: 1px solid var(--color-line);
+  background: var(--color-surface);
+  color: var(--color-ink-2);
+  box-shadow: var(--shadow-soft);
+  transition:
+    border-color 0.15s ease,
+    color 0.15s ease,
+    transform 0.15s ease;
+}
+.pill:hover:not(:disabled):not(.pill-active) {
+  border-color: var(--color-brand);
+  color: var(--color-brand);
+  transform: translateY(-1px);
+}
+.pill-active {
+  background: var(--brand-gradient);
+  border-color: transparent;
+  color: #fff;
+  font-weight: 500;
+  box-shadow: var(--shadow-brand);
+}
+
+/* Chat bubbles. The learner's own words get the brand; the room gets a plain card. */
+.bubble-user {
+  background: var(--brand-gradient);
+  color: #fff;
+  border-radius: 18px 18px 5px 18px;
+  box-shadow: var(--shadow-brand);
+}
+.bubble-ai {
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: 18px 18px 18px 5px;
+  box-shadow: var(--shadow-soft);
+}
+
+.field {
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: 12px;
+  box-shadow: var(--shadow-soft);
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+.field:focus,
+.field:focus-within {
+  outline: none;
+  border-color: var(--color-brand);
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.14);
+}
+
+/* A small tinted label, e.g. the error type on a correction. */
+.chip {
+  border-radius: 7px;
+  background: var(--color-brand-soft);
+  color: var(--color-brand-ink);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+/* New content should arrive, not blink into place. */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.rise {
+  animation: rise 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rise {
+    animation: none;
+  }
+  .btn-primary,
+  .btn-ghost,
+  .pill {
+    transition: none;
+  }
+}
+
+/* ---- Layout plumbing ----------------------------------------------------- */
+
+/* viewport-fit=cover puts the UI under the notch and home indicator, so anything
+   pinned to an edge has to pay the inset back. */
+.safe-top {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* A finger needs more room than a cursor. */
+@media (pointer: coarse) {
+  button,
+  a[href] {
+    min-height: 36px;
+  }
+}
+
+/* The transcript can get long; keep its scrollbar from looking like a system part. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line-strong) transparent;
 }

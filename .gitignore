@@ -39,3 +39,12 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local single-user data store
+data/
+
+# static export for the native shell
+out/
+
+# local tooling
+.claude/

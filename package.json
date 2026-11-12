@@ -3,15 +3,26 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "node scripts/dev.mjs",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "mobile:sync": "node scripts/mobile-sync.mjs",
+    "mobile:bundle": "node scripts/build-mobile.mjs",
+    "mobile:open": "cap open android",
+    "dev:lan": "node scripts/dev.mjs --host",
+    "passcode": "node scripts/set-passcode.mjs"
   },
   "dependencies": {
+    "@capacitor/android": "^8.6.0",
+    "@capacitor/cli": "^8.6.0",
+    "@capacitor/core": "^8.6.0",
+    "lucide-react": "^1.68.0",
     "next": "16.4.5",
+    "openai": "^7.50.0",
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@tailwindcss/turbopack": "^4",

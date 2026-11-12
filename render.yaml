@@ -1,0 +1,43 @@
+# Render blueprint — https://render.com/docs/blueprint-spec
+#
+# NOTE ON STORAGE: this app keeps everything in data/*.json on disk. Render's
+# filesystem is EPHEMERAL, so on the free plan that data is wiped on every deploy
+# and whenever the service spins down after inactivity. Deployed like this the app
+# works, but your practice history, library and progress do not survive.
+#
+# To keep data in the cloud you need either a Render Disk (paid plans only) or to
+# move src/core/store.ts onto a database. Everything else in the app reads through
+# those few store functions, so that swap is contained to one file.
+
+services:
+  - type: web
+    name: english-coach
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /login
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+
+      # Set these in the Render dashboard. sync:false keeps them out of this file
+      # and out of the repository.
+      - key: APP_PASSCODE
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_BASE_URL
+        sync: false
+      - key: OPENAI_MODEL
+        sync: false
+      - key: OPENAI_STT_MODEL
+        sync: false
+      - key: OPENAI_SPEECH_BASE_URL
+        sync: false
+      - key: OPENAI_SPEECH_API_KEY
+        sync: false
+
+      # Your Render URL, so the browser is allowed to call the API from it.
+      - key: ALLOWED_ORIGINS
+        sync: false
