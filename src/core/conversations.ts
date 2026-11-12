@@ -1,6 +1,7 @@
 import type { Coaching } from "./schemas";
 import type { TextMetrics } from "./metrics";
 import type { Difficulty } from "./scenarios";
+import type { Translation } from "./translate";
 
 /**
  * Saved conversations.
@@ -9,8 +10,8 @@ import type { Difficulty } from "./scenarios";
  * data — what fuels the profile, the charts and the review deck. This is the readable
  * thread, so you can reopen a practice session and see how it actually went.
  *
- * A refresh still starts a new conversation, which is what you want from a practice
- * tool — but the old one is now kept rather than thrown away.
+ * The page remembers which conversation is open, so a refresh or a trip to another page
+ * comes back to it. Only New starts another — and the old one is kept, not thrown away.
  */
 
 export interface StoredMessage {
@@ -19,6 +20,8 @@ export interface StoredMessage {
   spoken?: boolean;
   coaching?: Coaching;
   metrics?: TextMetrics;
+  /** Set instead of coaching on a Hinglish turn: what they said, back in English. */
+  translation?: Translation;
 }
 
 export interface Conversation {

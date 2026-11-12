@@ -185,10 +185,15 @@ pointless.
 
 ## Conversation history
 
-A refresh starts a fresh thread — that is what you want from a practice tool — but the
-old one is now **kept**. The **History** button lists every past conversation: scenario,
-when, the first thing you said, and how many answers it holds. Tap one to reopen it
-exactly as it was, coaching cards and all.
+**The chat you are in stays open until you press New.** Go to Review or Progress and
+back, or refresh the page, and the same conversation reopens from the database. Only
+**New** — or picking another scenario or pressure level — starts a fresh one. Which chat
+is open is remembered per device; the chat itself is saved on the server.
+
+Every chat is saved, English and Hinglish turns alike, from its first message. The
+**History** button lists every past conversation: scenario, when, the first thing you
+said, and how many messages it holds. Tap one to reopen it exactly as it was, coaching
+and translation cards and all.
 
 Each conversation can be deleted. **Deleting removes the turns it produced as well**, and
 rebuilds your learner profile from what is left. The alternative — erasing the chat but
@@ -197,15 +202,52 @@ you asked to erase. The confirmation says so before anything goes.
 
 Two different things are stored, deliberately:
 
-| File | What it is | Used by |
-|---|---|---|
-| `conversations.json` | The readable thread | History, reopening |
-| `sessions.json` | One record per answer | Dashboard, review deck, profile |
-| `profile.json` | Your recurring patterns | Injected into every prompt |
-| `cards.json` | Review schedules | Review deck |
+| MongoDB collection | File fallback | What it is | Used by |
+|---|---|---|---|
+| `conversations` | `conversations.json` | The readable thread | History, reopening |
+| `turns` | `sessions.json` | One record per answer | Dashboard, review deck, profile |
+| `profile` | `profile.json` | Your recurring patterns | Injected into every prompt |
+| `cards` | `cards.json` | Review schedules | Review deck |
+| `library` | `library.json` | Saved words | Library, weekly test |
+| `tests` | `tests.json` | Weekly test results | Test history |
 
-All of it is plain JSON on your own machine, gitignored. Nothing leaves the computer
-except the text sent to the model provider.
+Where it lives depends on one setting — see **Database** below.
+
+## Database
+
+With `MONGODB_URI` set in `.env.local`, everything above lives in **MongoDB** (Atlas works
+as is). Your history survives a deploy and every device that talks to the server sees the
+same data:
+
+```
+MONGODB_URI=mongodb+srv://<user>:<password>@<cluster>.mongodb.net/
+MONGODB_DB=english_coach
+```
+
+Leave `MONGODB_URI` blank and the app falls back to plain JSON files in `data/` on your own
+machine (gitignored) — no setup at all, which is still the right choice for trying it out.
+
+Two things to know:
+
+- **Atlas → Network Access** must allow the machine the server runs on, or every request
+  fails with a connection error that says so. For a host like Render, allow `0.0.0.0/0`;
+  its outbound addresses change.
+- **Already practised on files?** Copy them across once:
+
+  ```
+  npm run db:migrate
+  ```
+
+  It only reads `data/`, so the files stay as a backup. It is safe to run twice — records
+  are written under fixed ids, so nothing is duplicated — but run it *before* practising
+  on MongoDB, since a re-run puts the file's version of a conversation back over a newer
+  one.
+
+`scripts/seed-demo.mjs` writes to whichever store is live, with the same rules as before:
+`--clear` removes only the invented turns.
+
+All storage goes through `src/core/store.ts`; `store-mongo.ts` and `store-file.ts` are the
+two backends behind it, and nothing else in the app touches either.
 
 ## Trying it out
 
@@ -495,7 +537,9 @@ src/core/          Pure logic. Imports nothing from Next.
   speech.ts        Transcription and speech synthesis
   session.ts       The shared turn pipeline: coach, measure, persist
   conversations.ts Saved chat threads (types, summaries)
-  store.ts         JSON persistence, behind a handful of functions
+  store.ts         Persistence, behind a handful of functions
+  store-mongo.ts   MongoDB backend, used when MONGODB_URI is set
+  store-file.ts    JSON-file backend in data/, the fallback
 src/hooks/
   useRecorder.ts   MediaRecorder wrapper: codec picking, timer, permissions
   useRealtime.ts   The live WebRTC call and its event stream
@@ -525,6 +569,7 @@ src/proxy.ts       CORS allowlist for the native shell
 android/           Capacitor Android project
 scripts/
   seed-demo.mjs    Demo history for previewing the dashboard
+  migrate-to-mongo.mjs  Copies data/*.json into MongoDB (npm run db:migrate)
   make-icons.mjs   Generates the PNG app icons
   mobile-sync.mjs  Syncs the native shell in server mode
   build-mobile.mjs Static bundle for the native shell

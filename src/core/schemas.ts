@@ -110,7 +110,7 @@ export const COACH_TURN_JSON_SCHEMA = {
         better_phrasings: {
           type: "array",
           description:
-            "2-3 ways a confident native professional would actually say this in a meeting, varying in directness.",
+            "2-3 ways a confident native professional would actually say this in a meeting, varying in directness. Same meaning as the learner's message — never an answer to it.",
           items: { type: "string" },
         },
         vocab_upgrades: {

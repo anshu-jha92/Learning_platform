@@ -1,4 +1,25 @@
-/** Small text helpers shared by the deck. No dependencies, no I/O. */
+/** Small text helpers shared across the core. No dependencies, no I/O. */
+
+/**
+ * Code, markup or a shell line — never something a person says in a meeting.
+ *
+ * The safety net under the prompts: whatever a learner types ("write me the python code
+ * for..."), the coach only ever translates and corrects it, so any of this in the output
+ * means the model answered the request instead. Matches calls like print('x') but not
+ * plural notes like "update(s)".
+ */
+const CODE_PATTERNS = [
+  /`/, // markdown code, inline or fenced
+  /[{}]/, // blocks and objects
+  /<\/?[a-z][\w-]*(\s[^>]*)?>/i, // markup
+  /\b[A-Za-z_][\w.]*\((?!s\))[^)]*\)/, // a call: print('x'), console.log(x)
+  /=>|==|!=|&&|\|\|/, // operators
+  /^\s*(\$ |>>>|#!)/, // shell and REPL prompts
+];
+
+export function looksLikeCode(text: string): boolean {
+  return CODE_PATTERNS.some((pattern) => pattern.test(text));
+}
 
 /** Lowercase, strip punctuation, collapse whitespace — for comparison, not display. */
 export function normalise(text: string): string {

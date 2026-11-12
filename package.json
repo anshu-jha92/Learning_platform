@@ -11,13 +11,15 @@
     "mobile:bundle": "node scripts/build-mobile.mjs",
     "mobile:open": "cap open android",
     "dev:lan": "node scripts/dev.mjs --host",
-    "passcode": "node scripts/set-passcode.mjs"
+    "passcode": "node scripts/set-passcode.mjs",
+    "db:migrate": "node scripts/migrate-to-mongo.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.6.0",
     "@capacitor/cli": "^8.6.0",
     "@capacitor/core": "^8.6.0",
     "lucide-react": "^1.68.0",
+    "mongodb": "^7.8.0",
     "next": "16.4.5",
     "openai": "^7.50.0",
     "react": "19.3.0",

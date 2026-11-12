@@ -2,15 +2,18 @@
  * Generates demo practice history so the dashboard can be looked at before you have
  * logged real sessions.
  *
- *   node scripts/seed-demo.mjs          write demo history into data/
- *   node scripts/seed-demo.mjs --clear  delete data/ and start clean
+ *   node scripts/seed-demo.mjs          add demo history
+ *   node scripts/seed-demo.mjs --clear  remove the demo history again
  *
- * This writes the SAME files your real practice writes. Run --clear before you start
- * using the app for real, or your own numbers will be mixed in with invented ones.
+ * Writes wherever the app keeps its data: MongoDB when MONGODB_URI is set in .env.local,
+ * otherwise data/. This is the SAME store your real practice writes to. Run --clear
+ * before you start using the app for real, or your own numbers will be mixed in with
+ * invented ones.
  */
 
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { openMongo } from "./lib/mongo.mjs";
 
 const DATA_DIR = path.join(process.cwd(), "data");
 const SESSIONS = path.join(DATA_DIR, "sessions.json");
@@ -232,19 +235,61 @@ async function readTurns() {
 
 async function write(turns) {
   await fs.mkdir(DATA_DIR, { recursive: true });
-  const sorted = turns
-    .slice()
-    .sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
+  const sorted = turns.slice().sort(byTime);
   await fs.writeFile(SESSIONS, JSON.stringify(sorted, null, 2), "utf8");
   await fs.writeFile(PROFILE, JSON.stringify(buildProfile(sorted), null, 2), "utf8");
   return sorted;
+}
+
+const byTime = (a, b) => new Date(a.at).getTime() - new Date(b.at).getTime();
+const clearing = process.argv.includes("--clear");
+const mongo = await openMongo();
+
+if (mongo) {
+  // Same rules as the files below: demo turns are replaced or removed, the turns you
+  // actually practised are never touched, and the profile is rebuilt from what is left.
+  const turnsCol = mongo.db.collection("turns");
+  const profileCol = mongo.db.collection("profile");
+  const saveProfile = (turns) =>
+    profileCol.replaceOne(
+      { _id: "learner" },
+      { ...buildProfile(turns), _id: "learner" },
+      { upsert: true }
+    );
+
+  try {
+    await turnsCol.deleteMany({ demo: true });
+    const real = await turnsCol
+      .find({}, { projection: { _id: 0 } })
+      .sort({ at: 1, _id: 1 })
+      .toArray();
+
+    if (clearing) {
+      if (real.length === 0) await profileCol.deleteOne({ _id: "learner" });
+      else await saveProfile(real);
+      console.log(
+        `Removed the demo data from MongoDB.${real.length ? ` Kept your ${real.length} real ${real.length === 1 ? "turn" : "turns"}.` : ""}`
+      );
+    } else {
+      const demo = build();
+      await turnsCol.insertMany(demo.map((t) => ({ ...t })));
+      await saveProfile([...real, ...demo].sort(byTime));
+      console.log(
+        `Added ${demo.length} demo turns to MongoDB${real.length ? `, kept your ${real.length} real ${real.length === 1 ? "turn" : "turns"}` : ""}.\n` +
+          "Remove just the demo data later with: node scripts/seed-demo.mjs --clear"
+      );
+    }
+  } finally {
+    await mongo.client.close();
+  }
+  process.exit(0);
 }
 
 const existing = await readTurns();
 // Anything you actually practised. Never touched by this script.
 const real = existing.filter((t) => !t.demo);
 
-if (process.argv.includes("--clear")) {
+if (clearing) {
   if (real.length === 0) {
     await fs.rm(DATA_DIR, { recursive: true, force: true });
     console.log("Removed the demo data. Your history is empty.");

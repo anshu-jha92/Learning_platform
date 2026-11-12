@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { CoachError, type ChatTurn } from "@/core/coach";
 import { translateToEnglish } from "@/core/translate";
 import { transcribe } from "@/core/speech";
+import { recordTranslation } from "@/core/session";
+import type { Difficulty } from "@/core/scenarios";
 
 /**
  * Hindi in, English out.
@@ -9,11 +11,15 @@ import { transcribe } from "@/core/speech";
  * Accepts either JSON (typed Hindi) or multipart form data (spoken Hindi). A spoken
  * request is transcribed with language "hi" first, then translated.
  *
- * Nothing here is written to the practice record. A translation is help, not a measured
+ * The turn is saved into the conversation, so History shows the whole thread — but
+ * nothing is written to the practice record. A translation is help, not a measured
  * answer — counting it would make the progress charts say something untrue.
  */
 export async function POST(request: Request) {
   let scenarioId = "standup";
+  let difficulty: Difficulty = "normal";
+  let conversationId: string | undefined;
+  let spoken = false;
   let history: ChatTurn[] = [];
   let hindi = "";
 
@@ -27,6 +33,9 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "No audio was received." }, { status: 400 });
       }
       scenarioId = String(form.get("scenarioId") ?? "standup");
+      difficulty = (String(form.get("difficulty") ?? "") || "normal") as Difficulty;
+      conversationId = String(form.get("conversationId") ?? "") || undefined;
+      spoken = true;
       try {
         const raw = form.get("history");
         if (typeof raw === "string") {
@@ -41,6 +50,8 @@ export async function POST(request: Request) {
     } else {
       const body = await request.json();
       scenarioId = body.scenarioId ?? "standup";
+      difficulty = body.difficulty ?? "normal";
+      conversationId = typeof body.conversationId === "string" ? body.conversationId : undefined;
       history = Array.isArray(body.history) ? body.history : [];
       hindi = String(body.text ?? "").trim();
     }
@@ -60,7 +71,15 @@ export async function POST(request: Request) {
 
   try {
     const translation = await translateToEnglish(scenarioId, hindi, history);
-    return NextResponse.json({ ...translation, hindi });
+    const savedId = await recordTranslation({
+      conversationId,
+      scenarioId,
+      difficulty,
+      said: hindi,
+      spoken,
+      translation,
+    });
+    return NextResponse.json({ ...translation, hindi, conversationId: savedId });
   } catch (error) {
     if (error instanceof CoachError) {
       return NextResponse.json({ error: error.message }, { status: 502 });
