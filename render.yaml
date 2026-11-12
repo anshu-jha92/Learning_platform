@@ -1,13 +1,12 @@
 # Render blueprint — https://render.com/docs/blueprint-spec
 #
-# NOTE ON STORAGE: this app keeps everything in data/*.json on disk. Render's
-# filesystem is EPHEMERAL, so on the free plan that data is wiped on every deploy
-# and whenever the service spins down after inactivity. Deployed like this the app
-# works, but your practice history, library and progress do not survive.
+# NOTE ON STORAGE: set MONGODB_URI and all practice data lives in MongoDB Atlas,
+# so it survives deploys and spin-downs. In Atlas -> Network Access, allow
+# 0.0.0.0/0 — Render's outbound IP addresses are not fixed.
 #
-# To keep data in the cloud you need either a Render Disk (paid plans only) or to
-# move src/core/store.ts onto a database. Everything else in the app reads through
-# those few store functions, so that swap is contained to one file.
+# Without MONGODB_URI the app falls back to data/*.json on disk, and Render's
+# filesystem is EPHEMERAL: on the free plan that data is wiped on every deploy and
+# whenever the service spins down after inactivity.
 
 services:
   - type: web
@@ -37,6 +36,12 @@ services:
         sync: false
       - key: OPENAI_SPEECH_API_KEY
         sync: false
+
+      # MongoDB Atlas. Without it, data does not survive a deploy (see the note above).
+      - key: MONGODB_URI
+        sync: false
+      - key: MONGODB_DB
+        value: english_coach
 
       # Your Render URL, so the browser is allowed to call the API from it.
       - key: ALLOWED_ORIGINS

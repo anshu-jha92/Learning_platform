@@ -1,5 +1,3 @@
-import { promises as fs } from "node:fs";
-import path from "node:path";
 import { EMPTY_PROFILE, applyTurnToProfile, type LearnerProfile } from "./profile";
 import type { Coaching } from "./schemas";
 import type { TextMetrics } from "./metrics";
@@ -7,17 +5,18 @@ import type { CardState } from "./srs";
 import type { Conversation } from "./conversations";
 import type { LibraryEntry } from "./library";
 import type { TestAttempt } from "./test";
+import { fileStore } from "./store-file";
+import { mongoStore } from "./store-mongo";
 
 /**
- * Single-user JSON store.
+ * Persistence, behind one set of functions. Nothing else in the app touches storage.
  *
- * Deliberately tiny and behind one interface. When this goes multi-device (mobile), swap
- * the four functions below for Postgres queries — nothing else in the app touches storage.
+ *   MONGODB_URI set    → MongoDB (store-mongo.ts). Data survives deploys and is shared
+ *                        by every device that talks to this server.
+ *   MONGODB_URI unset  → JSON files in data/ (store-file.ts). Works with no setup.
+ *
+ * Moving existing files into MongoDB: npm run db:migrate
  */
-
-const DATA_DIR = path.join(process.cwd(), "data");
-const PROFILE_FILE = path.join(DATA_DIR, "profile.json");
-const SESSIONS_FILE = path.join(DATA_DIR, "sessions.json");
 
 export interface TurnRecord {
   at: string;
@@ -33,89 +32,86 @@ export interface TurnRecord {
   metrics: TextMetrics;
 }
 
-async function ensureDir() {
-  await fs.mkdir(DATA_DIR, { recursive: true });
+/** What a storage backend provides. The public functions below are built on it. */
+export interface StoreBackend {
+  /** null when nothing has been saved yet. */
+  getProfile(): Promise<LearnerProfile | null>;
+  saveProfile(profile: LearnerProfile): Promise<void>;
+  /** Oldest first. The newest `limit` turns, or every turn when limit is omitted. */
+  listTurns(limit?: number): Promise<TurnRecord[]>;
+  appendTurns(turns: TurnRecord[]): Promise<void>;
+  /** Deletes every turn a conversation produced; returns how many went. */
+  removeTurnsOf(conversationId: string): Promise<number>;
+  getCardStates(): Promise<Record<string, CardState>>;
+  saveCardState(state: CardState): Promise<void>;
+  listConversations(): Promise<Conversation[]>;
+  getConversation(id: string): Promise<Conversation | null>;
+  saveConversation(conversation: Conversation): Promise<void>;
+  /** Deletes the conversation and returns it, or null if there was none. */
+  removeConversation(id: string): Promise<Conversation | null>;
+  getLibrary(): Promise<LibraryEntry[]>;
+  addLibraryEntry(entry: LibraryEntry): Promise<{ added: boolean; entry: LibraryEntry }>;
+  removeLibraryEntry(id: string): Promise<boolean>;
+  listTestAttempts(): Promise<TestAttempt[]>;
+  saveTestAttempt(attempt: TestAttempt): Promise<void>;
 }
 
-async function readJson<T>(file: string, fallback: T): Promise<T> {
-  try {
-    const raw = await fs.readFile(file, "utf8");
-    return JSON.parse(raw) as T;
-  } catch {
-    return fallback;
-  }
+/** Read per call rather than once, so a change to .env.local takes effect on reload. */
+function backend(): StoreBackend {
+  return process.env.MONGODB_URI?.trim() ? mongoStore : fileStore;
 }
 
-async function writeJson(file: string, value: unknown) {
-  await ensureDir();
-  // Write-then-rename so a crash mid-write cannot leave a truncated file.
-  const tmp = `${file}.tmp`;
-  await fs.writeFile(tmp, JSON.stringify(value, null, 2), "utf8");
-  await fs.rename(tmp, file);
+/** Which store is live — for logs and the status route. */
+export function storageKind(): "mongodb" | "files" {
+  return backend() === mongoStore ? "mongodb" : "files";
 }
 
 export async function getProfile(): Promise<LearnerProfile> {
-  return readJson<LearnerProfile>(PROFILE_FILE, EMPTY_PROFILE);
+  return (await backend().getProfile()) ?? EMPTY_PROFILE;
 }
 
 export async function saveProfile(profile: LearnerProfile): Promise<void> {
-  await writeJson(PROFILE_FILE, profile);
+  await backend().saveProfile(profile);
 }
 
 export async function listTurns(limit = 200): Promise<TurnRecord[]> {
-  const all = await readJson<TurnRecord[]>(SESSIONS_FILE, []);
-  return all.slice(-limit);
+  return backend().listTurns(limit);
 }
 
 export async function appendTurn(turn: TurnRecord): Promise<void> {
-  const all = await readJson<TurnRecord[]>(SESSIONS_FILE, []);
-  all.push(turn);
-  await writeJson(SESSIONS_FILE, all);
+  await backend().appendTurns([turn]);
 }
 
-/** Batch append. A live call produces many turns at once; one read/write beats N. */
+/** Batch append. A live call produces many turns at once; one write beats N. */
 export async function appendTurns(turns: TurnRecord[]): Promise<void> {
   if (turns.length === 0) return;
-  const all = await readJson<TurnRecord[]>(SESSIONS_FILE, []);
-  all.push(...turns);
-  await writeJson(SESSIONS_FILE, all);
+  await backend().appendTurns(turns);
 }
 
 /* ---- Review deck ---------------------------------------------------------- */
 
-const CARDS_FILE = path.join(DATA_DIR, "cards.json");
-
 /** Review schedules, keyed by card id. Card *content* is derived from turn history. */
 export async function getCardStates(): Promise<Record<string, CardState>> {
-  return readJson<Record<string, CardState>>(CARDS_FILE, {});
+  return backend().getCardStates();
 }
 
 export async function saveCardState(state: CardState): Promise<void> {
-  const all = await getCardStates();
-  all[state.id] = state;
-  await writeJson(CARDS_FILE, all);
+  await backend().saveCardState(state);
 }
 
 /* ---- Conversations -------------------------------------------------------- */
 
-const CONVERSATIONS_FILE = path.join(DATA_DIR, "conversations.json");
-
 export async function listConversations(): Promise<Conversation[]> {
-  return readJson<Conversation[]>(CONVERSATIONS_FILE, []);
+  return backend().listConversations();
 }
 
 export async function getConversation(id: string): Promise<Conversation | null> {
-  const all = await listConversations();
-  return all.find((c) => c.id === id) ?? null;
+  return backend().getConversation(id);
 }
 
 /** Create or replace one conversation, keeping the rest untouched. */
 export async function saveConversation(conversation: Conversation): Promise<void> {
-  const all = await listConversations();
-  const index = all.findIndex((c) => c.id === conversation.id);
-  if (index >= 0) all[index] = conversation;
-  else all.push(conversation);
-  await writeJson(CONVERSATIONS_FILE, all);
+  await backend().saveConversation(conversation);
 }
 
 /**
@@ -127,22 +123,13 @@ export async function deleteConversation(id: string): Promise<{
   removedMessages: number;
   removedTurns: number;
 }> {
-  const all = await listConversations();
-  const target = all.find((c) => c.id === id);
+  const store = backend();
+  const target = await store.removeConversation(id);
   if (!target) return { removedMessages: 0, removedTurns: 0 };
 
-  await writeJson(
-    CONVERSATIONS_FILE,
-    all.filter((c) => c.id !== id)
-  );
-
-  const turns = await readJson<TurnRecord[]>(SESSIONS_FILE, []);
-  const kept = turns.filter((t) => t.conversationId !== id);
-  const removedTurns = turns.length - kept.length;
-
+  const removedTurns = await store.removeTurnsOf(id);
   if (removedTurns > 0) {
-    await writeJson(SESSIONS_FILE, kept);
-    await saveProfile(rebuildProfile(kept));
+    await store.saveProfile(rebuildProfile(await store.listTurns()));
   }
 
   return { removedMessages: target.messages.length, removedTurns };
@@ -163,44 +150,29 @@ function rebuildProfile(turns: TurnRecord[]): LearnerProfile {
 
 /* ---- Library -------------------------------------------------------------- */
 
-const LIBRARY_FILE = path.join(DATA_DIR, "library.json");
-
 export async function getLibrary(): Promise<LibraryEntry[]> {
-  return readJson<LibraryEntry[]>(LIBRARY_FILE, []);
+  return backend().getLibrary();
 }
 
 /** Adding the same word twice keeps the first entry rather than duplicating it. */
 export async function addLibraryEntry(
   entry: LibraryEntry
 ): Promise<{ added: boolean; entry: LibraryEntry }> {
-  const all = await getLibrary();
-  const existing = all.find((e) => e.id === entry.id);
-  if (existing) return { added: false, entry: existing };
-
-  all.push(entry);
-  await writeJson(LIBRARY_FILE, all);
-  return { added: true, entry };
+  return backend().addLibraryEntry(entry);
 }
 
 export async function removeLibraryEntry(id: string): Promise<boolean> {
-  const all = await getLibrary();
-  const kept = all.filter((e) => e.id !== id);
-  if (kept.length === all.length) return false;
-  await writeJson(LIBRARY_FILE, kept);
-  return true;
+  return backend().removeLibraryEntry(id);
 }
 
 /* ---- Test attempts -------------------------------------------------------- */
 
-const TESTS_FILE = path.join(DATA_DIR, "tests.json");
-
+/** Newest first. */
 export async function listTestAttempts(): Promise<TestAttempt[]> {
-  const all = await readJson<TestAttempt[]>(TESTS_FILE, []);
+  const all = await backend().listTestAttempts();
   return all.sort((a, b) => b.takenAt.localeCompare(a.takenAt));
 }
 
 export async function saveTestAttempt(attempt: TestAttempt): Promise<void> {
-  const all = await readJson<TestAttempt[]>(TESTS_FILE, []);
-  all.push(attempt);
-  await writeJson(TESTS_FILE, all);
+  await backend().saveTestAttempt(attempt);
 }

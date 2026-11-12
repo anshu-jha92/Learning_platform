@@ -10,6 +10,7 @@ import {
 } from "./store";
 import { getScenario, type Difficulty } from "./scenarios";
 import type { CoachTurn } from "./schemas";
+import type { Translation } from "./translate";
 import {
   newConversationId,
   type Conversation,
@@ -35,6 +36,69 @@ export interface ProcessedTurn extends CoachTurn {
 }
 
 /**
+ * The page makes the id itself before the first answer, so a chat it was in the middle
+ * of can be found again after a refresh. Only the shape newConversationId produces is
+ * accepted — anything else (an object smuggled in as a query, say) starts a new thread.
+ */
+function cleanId(id: unknown): string | undefined {
+  return typeof id === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(id) ? id : undefined;
+}
+
+/**
+ * Reopen the conversation, or start one under the id asked for. The opener comes from the
+ * scenario rather than the client, so a saved thread always begins the way the app
+ * actually began it.
+ */
+async function conversationFor(
+  input: { conversationId?: string; scenarioId: string; difficulty: Difficulty },
+  now: string
+): Promise<Conversation> {
+  const id = cleanId(input.conversationId);
+  const existing = id ? await getConversation(id) : null;
+  return (
+    existing ?? {
+      id: id ?? newConversationId(),
+      scenarioId: input.scenarioId,
+      difficulty: input.difficulty,
+      startedAt: now,
+      updatedAt: now,
+      messages: [{ role: "assistant", content: getScenario(input.scenarioId).opener }],
+    }
+  );
+}
+
+/**
+ * A Hinglish turn, kept in the conversation so the thread reads back whole — and kept
+ * ONLY there. Saying something in Hindi is not an attempt at English, so it never
+ * reaches the turn records, the profile or the charts.
+ */
+export async function recordTranslation(input: {
+  conversationId?: string;
+  scenarioId: string;
+  difficulty: Difficulty;
+  said: string;
+  spoken?: boolean;
+  translation: Translation;
+}): Promise<string> {
+  const now = new Date().toISOString();
+  const conversation = await conversationFor(input, now);
+
+  conversation.messages.push(
+    {
+      role: "user",
+      content: input.said,
+      translation: input.translation,
+      ...(input.spoken ? { spoken: true } : {}),
+    },
+    { role: "assistant", content: input.translation.reply }
+  );
+  conversation.updatedAt = now;
+
+  await saveConversation(conversation);
+  return conversation.id;
+}
+
+/**
  * The full pipeline for one learner turn, shared by the typed and spoken routes:
  * coach the message, measure it, fold it into the learner profile, append it to the
  * saved conversation, persist, return.
@@ -54,25 +118,7 @@ export async function processTurn(
 
   const metrics = analyseText(input.userMessage, input.durationMs);
   const now = new Date().toISOString();
-
-  // Reopen the conversation, or start one. The opener comes from the scenario rather
-  // than the client, so a saved thread always begins the way the app actually began it.
-  let conversation: Conversation | null = input.conversationId
-    ? await getConversation(input.conversationId)
-    : null;
-
-  if (!conversation) {
-    conversation = {
-      id: input.conversationId ?? newConversationId(),
-      scenarioId: input.scenarioId,
-      difficulty: input.difficulty,
-      startedAt: now,
-      updatedAt: now,
-      messages: [
-        { role: "assistant", content: getScenario(input.scenarioId).opener },
-      ],
-    };
-  }
+  const conversation = await conversationFor(input, now);
 
   const userMessage: StoredMessage = {
     role: "user",

@@ -35,6 +35,7 @@ import { DemoBanner } from "@/components/DemoBanner";
 import { ChatHistory } from "@/components/ChatHistory";
 import { TranslationCard } from "@/components/TranslationCard";
 import type { Translation } from "@/core/translate";
+import { newConversationId } from "@/core/conversations";
 
 interface Msg {
   role: "user" | "assistant";
@@ -63,6 +64,45 @@ const SPEECH_RATES = [
   { value: 1, label: "Normal" },
 ] as const;
 
+/**
+ * The chat you are in, remembered per device. Going to Review and back, or refreshing,
+ * reopens it from the server; only New (or another scenario) starts a different one.
+ * Only the pointer lives here — the conversation itself is saved on the server.
+ */
+const ACTIVE_CHAT_KEY = "coach_active_chat";
+
+interface ActiveChat {
+  conversationId: string | null;
+  scenarioId: string;
+  difficulty: Difficulty;
+}
+
+function readActiveChat(): ActiveChat | null {
+  try {
+    const raw = localStorage.getItem(ACTIVE_CHAT_KEY);
+    if (!raw) return null;
+    const saved = JSON.parse(raw) as Partial<ActiveChat>;
+    if (!SCENARIOS.some((s) => s.id === saved.scenarioId)) return null;
+    if (!DIFFICULTIES.includes(saved.difficulty as Difficulty)) return null;
+    return {
+      conversationId: typeof saved.conversationId === "string" ? saved.conversationId : null,
+      scenarioId: saved.scenarioId as string,
+      difficulty: saved.difficulty as Difficulty,
+    };
+  } catch {
+    // Blocked storage or a mangled value: start fresh rather than fail.
+    return null;
+  }
+}
+
+function writeActiveChat(chat: ActiveChat) {
+  try {
+    localStorage.setItem(ACTIVE_CHAT_KEY, JSON.stringify(chat));
+  } catch {
+    // Blocked storage: the chat is still saved in History, it just will not reopen itself.
+  }
+}
+
 function clock(ms: number) {
   const total = Math.floor(ms / 1000);
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
@@ -87,6 +127,9 @@ export default function Home() {
    * it is a comfort setting, not practice data, so localStorage is the right home.
    */
   const [speechRate, setSpeechRate] = useState(0.85);
+  /** True once the chat you were in has been reopened (or there was none). */
+  const [restored, setRestored] = useState(false);
+  const restoreStarted = useRef(false);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -109,10 +152,75 @@ export default function Home() {
     void d;
   }, []);
 
-  // The opening line, once, on first load.
+  /**
+   * Reopen the chat you were in, or show the opening line of a fresh one. Once only —
+   * the ref stops React's dev-mode double effect from fetching it twice.
+   *
+   * This has to be an effect that sets state: the saved chat is in localStorage, which
+   * the server cannot see, so the first render must match the server's HTML and only
+   * then move to the saved chat. Reading it during render would break hydration.
+   */
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
-    setMessages([{ role: "assistant", content: getScenario(SCENARIOS[0].id).opener }]);
+    if (restoreStarted.current) return;
+    restoreStarted.current = true;
+
+    const saved = readActiveChat();
+    const sid = saved?.scenarioId ?? SCENARIOS[0].id;
+    setScenarioId(sid);
+    if (saved) setDifficulty(saved.difficulty);
+    setMessages([{ role: "assistant", content: getScenario(sid).opener }]);
+
+    const id = saved?.conversationId;
+    if (!id) {
+      setRestored(true);
+      return;
+    }
+
+    setConversationId(id);
+    setBusyLabel("Opening your conversation");
+    void (async () => {
+      try {
+        const res = await apiFetch(`/api/conversations/${encodeURIComponent(id)}`);
+        const data = await res.json();
+        if (res.ok) {
+          const c = data.conversation;
+          setScenarioId(c.scenarioId);
+          setDifficulty(c.difficulty);
+          setMessages(c.messages);
+        } else if (res.status !== 404) {
+          setError(data.error ?? "Could not reopen your conversation.");
+        }
+        // A 404 is a chat that never got its first answer, or was deleted elsewhere:
+        // the fresh thread above stands, and the id is used when you do answer.
+      } catch {
+        setError("Could not reach the server to reopen your conversation.");
+      } finally {
+        setBusyLabel(null);
+        setRestored(true);
+      }
+    })();
   }, []);
+  /* eslint-enable react-hooks/set-state-in-effect */
+
+  // Keep the pointer current — but only after the restore, or the defaults this page
+  // starts with would overwrite the very value it is about to read.
+  useEffect(() => {
+    if (!restored) return;
+    writeActiveChat({ conversationId, scenarioId, difficulty });
+  }, [restored, conversationId, scenarioId, difficulty]);
+
+  /**
+   * The chat's id is made here, before its first answer is sent, and remembered at once —
+   * so a chat you leave while an answer is still being marked can be found again.
+   */
+  const ensureConversationId = useCallback((): string => {
+    if (conversationId) return conversationId;
+    const id = newConversationId();
+    setConversationId(id);
+    writeActiveChat({ conversationId: id, scenarioId, difficulty });
+    return id;
+  }, [conversationId, scenarioId, difficulty]);
 
   // Restore the speaking speed. Wrapped because storage throws in a private window.
   useEffect(() => {
@@ -266,10 +374,11 @@ export default function Home() {
   );
 
   /**
-   * Hindi in, English back. Not coached and not recorded as practice — saying it in
-   * Hindi is not an attempt at English, so scoring it would be meaningless and counting
-   * it would skew the charts. The card's "practice this" button sends it back through
-   * the normal English path, which is where the learning happens.
+   * Hindi in, English back. Saved into the conversation so the thread reads back whole,
+   * but not coached and not recorded as practice — saying it in Hindi is not an attempt
+   * at English, so scoring it would be meaningless and counting it would skew the charts.
+   * The card's "practice this" button sends it back through the normal English path,
+   * which is where the learning happens.
    */
   async function translateTyped(text: string) {
     setInput("");
@@ -277,13 +386,14 @@ export default function Home() {
     setBusyLabel("Finding the English for that");
 
     const history = historyFor(messages);
+    const id = ensureConversationId();
     setMessages((prev) => [...prev, { role: "user", content: text }]);
 
     try {
       const res = await apiFetch("/api/translate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scenarioId, history, text }),
+        body: JSON.stringify({ scenarioId, difficulty, history, text, conversationId: id }),
       });
       const data = await res.json();
 
@@ -325,13 +435,14 @@ export default function Home() {
     setBusyLabel("Marking your answer");
 
     const history = historyFor(messages);
+    const id = ensureConversationId();
     setMessages((prev) => [...prev, { role: "user", content: message }]);
 
     try {
       const res = await apiFetch("/api/coach", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scenarioId, difficulty, history, message, conversationId }),
+        body: JSON.stringify({ scenarioId, difficulty, history, message, conversationId: id }),
       });
       const data = await res.json();
 
@@ -371,6 +482,8 @@ export default function Home() {
           new File([rec.blob], `answer.${rec.extension}`, { type: rec.blob.type })
         );
         form.append("scenarioId", scenarioId);
+        form.append("difficulty", difficulty);
+        form.append("conversationId", ensureConversationId());
         form.append("history", JSON.stringify(historyFor(messages)));
 
         try {
@@ -405,7 +518,7 @@ export default function Home() {
       form.append("difficulty", difficulty);
       form.append("durationMs", String(rec.durationMs));
       form.append("history", JSON.stringify(history));
-      if (conversationId) form.append("conversationId", conversationId);
+      form.append("conversationId", ensureConversationId());
 
       try {
         const res = await apiFetch("/api/speak", { method: "POST", body: form });
@@ -443,7 +556,7 @@ export default function Home() {
         setBusyLabel(null);
       }
     },
-    [messages, scenarioId, difficulty, historyFor, speak, hindiMode]
+    [messages, scenarioId, difficulty, historyFor, speak, hindiMode, ensureConversationId]
   );
 
   const stopAndSend = useCallback(async () => {

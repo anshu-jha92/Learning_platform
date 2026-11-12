@@ -66,6 +66,9 @@ build/
 .env.development
 .env.production
 
+# ...except the template, which holds no secrets and documents every variable.
+!.env.local.example
+
 # Logs
 *.log
 npm-debug.log*
